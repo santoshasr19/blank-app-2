@@ -1,4 +1,4 @@
-import pandas as pd 
+import pandas as pd
 import numpy as np
 import streamlit as st
 import nltk
@@ -8,10 +8,9 @@ from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.preprocessing import OneHotEncoder, FunctionTransformer
+from sklearn.preprocessing import LabelEncoder
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LinearRegression
-from sklearn.metrics import accuracy_score
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.impute import SimpleImputer
 
@@ -20,7 +19,6 @@ nltk.download('stopwords')
 
 # Load the data from the Excel file
 df = pd.read_excel('Upgrade_Defects.xlsm')  # Replace with your actual file path
-
 
 # Ensure necessary columns are not missing and fill NaNs where needed
 df.dropna(subset=['Name / Summary', 'Priority', 'Issue Severity', 'Category', 'Created Date [...]', 'Closed On [...]'], inplace=True)
@@ -41,22 +39,9 @@ excel_start_date = pd.Timestamp('1899-12-30')
 df['Created Date [...]'] = excel_start_date + pd.to_timedelta(df['Created Date [...]'], unit='D')
 df['Closed On [...]'] = excel_start_date + pd.to_timedelta(df['Closed On [...]'], unit='D')
 
-
-# # Convert dates to datetime
-# df['Created Date [...]'] = pd.to_datetime(df['Created Date [...]'], errors='coerce')
-# df['Closed On [...]'] = pd.to_datetime(df['Closed On [...]'], errors='coerce')
-
-print('Created Date [...]')
-print(df['Created Date [...]'])
-print("closed on")
-print(df['Closed On [...]'])
-
 # Calculate duration in days
 df['Days to Close'] = (df['Closed On [...]'] - df['Created Date [...]']).dt.days
 df['Days to Close'].fillna(-1, inplace=True)  # Use -1 for tickets that have not been closed yet
-
-# Handle 'Issue Severity' missing values
-df['Issue Severity'] = df['Issue Severity'].fillna('Unknown')
 
 # Preprocess 'Name / Summary' for text data
 def preprocess_text(text):
@@ -68,86 +53,101 @@ def preprocess_text(text):
 
 df['Processed_Summary'] = df['Name / Summary'].apply(preprocess_text)
 
-# Calculate the difference in days between Created Date and Closed On
-df['Days to Close'] = (df['Closed On [...]'] - df['Created Date [...]']).dt.days
+# Encode categorical columns for model training
+priority_encoder = LabelEncoder()
+severity_encoder = LabelEncoder()
+category_encoder = LabelEncoder()
 
-print(df['Closed On [...]'])
-print(df['Created Date [...]'])
+df['Priority_encoded'] = priority_encoder.fit_transform(df['Priority'])
+df['Severity_encoded'] = severity_encoder.fit_transform(df['Issue Severity'])
+df['Category_encoded'] = category_encoder.fit_transform(df['Category'])
 
-
-# Combine features for models
-df['Combined_Feature'] = df['Processed_Summary'] + ' ' + df['Issue Severity']
-
-# Prepare data for regression
-X = df[['Combined_Feature', 'Priority', 'Issue Severity']]
+# Define the target variables
+y_priority = df['Priority_encoded']
+y_severity = df['Severity_encoded']
+y_category = df['Category_encoded']
 y_duration = df['Days to Close']
-print(y_duration)
 
-# Train-test split
-X_train, X_test, y_duration_train, y_duration_test = train_test_split(X, y_duration, test_size=0.1, random_state=42)
+# Split the data for each target
+X = df[['Processed_Summary']]  # Only use the processed summary for prediction
 
-# One-hot encode 'Priority' and 'Issue Severity'
-one_hot_encoder = OneHotEncoder(handle_unknown='ignore')
+X_train_p, X_test_p, y_train_p, y_test_p = train_test_split(X, y_priority, test_size=0.1, random_state=42)
+X_train_s, X_test_s, y_train_s, y_test_s = train_test_split(X, y_severity, test_size=0.1, random_state=42)
+X_train_c, X_test_c, y_train_c, y_test_c = train_test_split(X, y_category, test_size=0.1, random_state=42)
+X_train_d, X_test_d, y_train_d, y_test_d = train_test_split(X, y_duration, test_size=0.1, random_state=42)
 
-# Define preprocessor for text features
-text_preprocessor = TfidfVectorizer(max_features=1000)
+# Text vectorizer
+text_vectorizer = TfidfVectorizer(max_features=1000)
 
-# Create pipeline for duration prediction
+# Pipeline for predicting Priority
+pipeline_priority = Pipeline([
+    ('tfidf', text_vectorizer),
+    ('classifier', RandomForestClassifier(random_state=42))
+])
+
+# Pipeline for predicting Severity
+pipeline_severity = Pipeline([
+    ('tfidf', text_vectorizer),
+    ('classifier', RandomForestClassifier(random_state=42))
+])
+
+# Pipeline for predicting Category
+pipeline_category = Pipeline([
+    ('tfidf', text_vectorizer),
+    ('classifier', RandomForestClassifier(random_state=42))
+])
+
+# Pipeline for predicting Duration
 pipeline_duration = Pipeline([
-    ('preprocessor', ColumnTransformer([
-        ('text', text_preprocessor, 'Combined_Feature'),
-        ('onehot', one_hot_encoder, ['Priority', 'Issue Severity'])
-    ])),
+    ('tfidf', text_vectorizer),
     ('regressor', LinearRegression())
 ])
 
-# Train the model
-pipeline_duration.fit(X_train, y_duration_train)
-
-# Evaluate the model
-print("Duration Model R^2 Score:", pipeline_duration.score(X_test, y_duration_test))
-
-# Vectorize the 'Processed_Summary' using TF-IDF
-tfidf_vectorizer = TfidfVectorizer(max_features=1000)
-tfidf_matrix = tfidf_vectorizer.fit_transform(df['Processed_Summary'])
-
-# Function to find similar tickets
-def find_similar_ticket(new_ticket_summary, df, tfidf_vectorizer, tfidf_matrix, threshold=0.7):
-    new_ticket_processed = preprocess_text(new_ticket_summary)
-    new_ticket_vector = tfidf_vectorizer.transform([new_ticket_processed])
-    similarity_scores = cosine_similarity(new_ticket_vector, tfidf_matrix)
-    similar_ticket_indices = similarity_scores[0].argsort()[::-1]
-
-    similar_tickets = []
-    for idx in similar_ticket_indices:
-        if similarity_scores[0][idx] >= threshold:
-            similar_tickets.append((df.iloc[idx]['Number'], df.iloc[idx]['Name / Summary'], similarity_scores[0][idx]))
-        else:
-            break
-    return similar_tickets
-
-# Prediction functions
-def predict_duration(summary, priority, severity):
-    """Predict duration (time required to resolve the ticket) based on summary, priority, and severity."""
-    features = pd.DataFrame([[summary, priority, severity]], columns=['Combined_Feature', 'Priority', 'Issue Severity'])
-    return pipeline_duration.predict(features)[0]
+# Train the models
+pipeline_priority.fit(X_train_p['Processed_Summary'], y_train_p)
+pipeline_severity.fit(X_train_s['Processed_Summary'], y_train_s)
+pipeline_category.fit(X_train_c['Processed_Summary'], y_train_c)
+pipeline_duration.fit(X_train_d['Processed_Summary'], y_train_d)
 
 # Streamlit UI for user interaction
 st.title('Ticket Prediction System')
 
 # Input fields
 summary = st.text_input('Name / Summary')
-priority = st.selectbox('Priority', ['1', '2', '3', 'Blocking', 'Unknown'])
-severity = st.selectbox('Severity', ['Critical', 'Major', 'Minor', 'Unknown'])
 
 if st.button('Predict'):
-    # Find similar tickets
-    similar_tickets = find_similar_ticket(summary, df, tfidf_vectorizer, tfidf_matrix)
-    st.write("Similar Tickets:")
-    for ticket in similar_tickets:
-        st.write(f"Ticket Number: {ticket[0]}, Summary: {ticket[1]}, Similarity: {ticket[2]:.2f}")
-    # Make predictions
-    predicted_duration = predict_duration(summary, priority, severity)
+    # Preprocess the summary input
+    processed_summary = preprocess_text(summary)
+    
+    # Predict Priority, Severity, Category, and Duration
+    predicted_priority_encoded = pipeline_priority.predict([processed_summary])[0]
+    predicted_severity_encoded = pipeline_severity.predict([processed_summary])[0]
+    predicted_category_encoded = pipeline_category.predict([processed_summary])[0]
+    predicted_duration = pipeline_duration.predict([processed_summary])[0]
 
-    # Display results
+    # Decode the predictions
+    predicted_priority = priority_encoder.inverse_transform([predicted_priority_encoded])[0]
+    predicted_severity = severity_encoder.inverse_transform([predicted_severity_encoded])[0]
+    predicted_category = category_encoder.inverse_transform([predicted_category_encoded])[0]
+
+    # Display the predicted results
+    st.write(f"Priority: {predicted_priority}")
+    st.write(f"Severity: {predicted_severity}")
+    st.write(f"Category: {predicted_category}")
     st.write(f"Duration (Days to Close): {predicted_duration:.2f}")
+
+    # Calculate Cosine Similarity between the input summary and existing summaries
+    vectorized_summaries = text_vectorizer.transform(df['Processed_Summary'])
+    input_vector = text_vectorizer.transform([processed_summary])
+    
+    similarities = cosine_similarity(input_vector, vectorized_summaries).flatten()
+    
+    # Get the ticket with the highest similarity
+    most_similar_idx = np.argmax(similarities)  # Get the index of the most similar ticket
+    
+    most_similar_ticket = df.iloc[most_similar_idx]
+    
+    st.write(f"**Most Similar Ticket**")
+    st.write(f"- **Ticket Number**: {most_similar_ticket['Number']}")
+    st.write(f"- **Summary**: {most_similar_ticket['Name / Summary']}")
+    st.write(f"- **Similarity**: {similarities[most_similar_idx]:.2f}")
