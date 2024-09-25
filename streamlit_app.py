@@ -145,8 +145,8 @@ if st.button('Predict'):
     st.write(f"- **Summary**: {most_similar_ticket['Name / Summary']}")
     st.write(f"- **Similarity**: {similarities[most_similar_idx]:.2f}")
 
+    st.write(f"Duration (Days to Close): {predicted_duration:.2f}")
     # Display the predicted results
     st.write(f"Priority: {predicted_priority}")
     st.write(f"Severity: {predicted_severity}")
     st.write(f"Category: {predicted_category}")
-    st.write(f"Duration (Days to Close): {predicted_duration:.2f}")
