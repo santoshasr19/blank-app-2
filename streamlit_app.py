@@ -125,29 +125,28 @@ if st.button('Predict'):
     predicted_category_encoded = pipeline_category.predict([processed_summary])[0]
     predicted_duration = pipeline_duration.predict([processed_summary])[0]
 
-    # Decode the predictions
-    predicted_priority = priority_encoder.inverse_transform([predicted_priority_encoded])[0]
-    predicted_severity = severity_encoder.inverse_transform([predicted_severity_encoded])[0]
-    predicted_category = category_encoder.inverse_transform([predicted_category_encoded])[0]
-
-    # Display the predicted results
-    st.write(f"Priority: {predicted_priority}")
-    st.write(f"Severity: {predicted_severity}")
-    st.write(f"Category: {predicted_category}")
-    st.write(f"Duration (Days to Close): {predicted_duration:.2f}")
-
     # Calculate Cosine Similarity between the input summary and existing summaries
     vectorized_summaries = text_vectorizer.transform(df['Processed_Summary'])
     input_vector = text_vectorizer.transform([processed_summary])
     
     similarities = cosine_similarity(input_vector, vectorized_summaries).flatten()
-    
+
     # Get the ticket with the highest similarity
     most_similar_idx = np.argmax(similarities)  # Get the index of the most similar ticket
-    
+    # Decode the predictions
+    predicted_priority = priority_encoder.inverse_transform([predicted_priority_encoded])[0]
+    predicted_severity = severity_encoder.inverse_transform([predicted_severity_encoded])[0]
+    predicted_category = category_encoder.inverse_transform([predicted_category_encoded])[0]
+
     most_similar_ticket = df.iloc[most_similar_idx]
     
     st.write(f"**Most Similar Ticket**")
     st.write(f"- **Ticket Number**: {most_similar_ticket['Number']}")
     st.write(f"- **Summary**: {most_similar_ticket['Name / Summary']}")
     st.write(f"- **Similarity**: {similarities[most_similar_idx]:.2f}")
+
+    # Display the predicted results
+    st.write(f"Priority: {predicted_priority}")
+    st.write(f"Severity: {predicted_severity}")
+    st.write(f"Category: {predicted_category}")
+    st.write(f"Duration (Days to Close): {predicted_duration:.2f}")
