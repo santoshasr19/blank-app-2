@@ -6,13 +6,11 @@ import string
 from nltk.corpus import stopwords
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
-from sklearn.compose import ColumnTransformer
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.preprocessing import LabelEncoder
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics.pairwise import cosine_similarity
-from sklearn.impute import SimpleImputer
 
 # Ensure necessary NLTK data files are downloaded
 nltk.download('stopwords')
@@ -125,28 +123,45 @@ if st.button('Predict'):
     predicted_category_encoded = pipeline_category.predict([processed_summary])[0]
     predicted_duration = pipeline_duration.predict([processed_summary])[0]
 
+    # Decode the predictions
+    predicted_priority = priority_encoder.inverse_transform([predicted_priority_encoded])[0]
+    predicted_severity = severity_encoder.inverse_transform([predicted_severity_encoded])[0]
+    predicted_category = category_encoder.inverse_transform([predicted_category_encoded])[0]
+
     # Calculate Cosine Similarity between the input summary and existing summaries
     vectorized_summaries = text_vectorizer.transform(df['Processed_Summary'])
     input_vector = text_vectorizer.transform([processed_summary])
     
     similarities = cosine_similarity(input_vector, vectorized_summaries).flatten()
 
-    # Get the ticket with the highest similarity
-    most_similar_idx = np.argmax(similarities)  # Get the index of the most similar ticket
-    # Decode the predictions
-    predicted_priority = priority_encoder.inverse_transform([predicted_priority_encoded])[0]
-    predicted_severity = severity_encoder.inverse_transform([predicted_severity_encoded])[0]
-    predicted_category = category_encoder.inverse_transform([predicted_category_encoded])[0]
+    # Get the indices of the 5 most similar tickets
+    top_5_similar_indices = similarities.argsort()[-5:][::-1]  # Sort and get top 5 in descending order
 
-    most_similar_ticket = df.iloc[most_similar_idx]
+    # Retrieve the 5 most similar tickets
+    top_5_similar_tickets = df.iloc[top_5_similar_indices]
+
+    # Create a DataFrame for the top 5 similar tickets
+    top_5_similar_tickets_df = pd.DataFrame({
+        'Ticket Number': top_5_similar_tickets['Number'],
+        'Summary': top_5_similar_tickets['Name / Summary'],
+        'Priority': top_5_similar_tickets['Priority'],
+        'Severity': top_5_similar_tickets['Issue Severity'],
+        'Category': top_5_similar_tickets['Category'],
+        'Similarity': similarities[top_5_similar_indices]
+    })
     
-    st.write(f"**Most Similar Ticket**")
-    st.write(f"- **Ticket Number**: {most_similar_ticket['Number']}")
-    st.write(f"- **Summary**: {most_similar_ticket['Name / Summary']}")
-    st.write(f"- **Similarity**: {similarities[most_similar_idx]:.2f}")
-
-    st.write(f"Duration (Days to Close): {predicted_duration:.2f}")
-    # Display the predicted results
-    st.write(f"Priority: {predicted_priority}")
-    st.write(f"Severity: {predicted_severity}")
-    st.write(f"Category: {predicted_category}")
+    # Display the top 5 similar tickets in a table
+    st.write("### Top 5 Similar Tickets")
+    st.table(top_5_similar_tickets_df)
+    
+    # Create a DataFrame for predicted results
+    predicted_results = pd.DataFrame({
+        'Predicted Priority': [predicted_priority],
+        'Predicted Severity': [predicted_severity],
+        'Predicted Category': [predicted_category],
+        'Predicted Duration (Days to Close)': [predicted_duration]
+    })
+    
+    # Display the predicted results in a table
+    st.write("### Predicted Results")
+    st.table(predicted_results)
