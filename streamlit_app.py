@@ -147,7 +147,8 @@ if st.button('Predict'):
         'Priority': top_5_similar_tickets['Priority'],
         'Severity': top_5_similar_tickets['Issue Severity'],
         'Category': top_5_similar_tickets['Category'],
-        'Similarity': similarities[top_5_similar_indices]
+        'Similarity': similarities[top_5_similar_indices],
+        'time taken':top_5_similar_tickets['Days to Close']
     })
     
     # Display the top 5 similar tickets in a table
